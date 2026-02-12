@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SWGOH GAC Analyzer</title>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f5f6f8;
+            color: #1a1a1a;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            padding: 60px 30px;
+        }
+
+        h1 {
+            font-weight: 600;
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+
+        input {
+            flex: 1;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            font-size: 14px;
+            outline: none;
+        }
+
+        button {
+            padding: 12px 18px;
+            border-radius: 8px;
+            border: none;
+            background-color: #111;
+            color: white;
+            cursor: pointer;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        .progress-container {
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 50px;
+            overflow: hidden;
+            margin-bottom: 40px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: #111;
+            transition: width 0.25s ease;
+        }
+
+        .results {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+
+        .card h3 {
+            margin-top: 0;
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+
+        ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        li {
+            padding: 6px 0;
+            font-size: 14px;
+            border-bottom: 1px solid #f2f2f2;
+        }
+
+        li:last-child {
+            border-bottom: none;
+        }
+
+        .count {
+            float: right;
+            color: #666;
+        }
+
+        @media (max-width: 700px) {
+            .results {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>SWGOH GAC Analyzer</h1>
+
+    <div class="input-group">
+        <input id="playerId" placeholder="Enter Player ID">
+        <button onclick="startAnalysis()">Analyze</button>
+    </div>
+
+    <div class="progress-container">
+        <div id="progressBar" class="progress-bar"></div>
+    </div>
+
+    <div id="results" class="results"></div>
+
+</div>
+
+<script>
+function startAnalysis() {
+    const playerId = document.getElementById("playerId").value;
+    const bar = document.getElementById("progressBar");
+    const results = document.getElementById("results");
+
+    bar.style.width = "0%";
+    results.innerHTML = "";
+
+    const eventSource = new EventSource(`/analyze?player_id=${playerId}`);
+
+    eventSource.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+
+        if (data.progress !== undefined) {
+            bar.style.width = data.progress + "%";
+        }
+
+        if (data.done) {
+            eventSource.close();
+
+            if (data.error) {
+                results.innerHTML = `<div class="card">${data.error}</div>`;
+                return;
+            }
+
+            let winsHTML = "<div class='card'><h3>Teams with Most Offense Wins</h3><ul>";
+            for (let [name, count] of Object.entries(data.wins)) {
+                winsHTML += `<li>${name} <span class="count">x${count}</span></li>`;
+            }
+            winsHTML += "</ul></div>";
+
+            let lossesHTML = "<div class='card'><h3>Teams with Most Offense Losses</h3><ul>";
+            for (let [name, count] of Object.entries(data.losses)) {
+                lossesHTML += `<li>${name} <span class="count">x${count}</span></li>`;
+            }
+            lossesHTML += "</ul></div>";
+
+            results.innerHTML = winsHTML + lossesHTML;
+        }
+    };
+}
+</script>
+
+</body>
+</html>
