@@ -11,25 +11,30 @@ app = Flask(__name__)
 MAX_MATCHES = 6
 TOP_LIMIT = 10
 
-
 # -------------------------------------------------------
 # GET MOST RECENT MATCH ENDINGS
 # -------------------------------------------------------
 async def get_gac_match_endings(player_id):
     url = f"https://swgoh.gg/p/{player_id}/gac-history/"
 
-    async with AsyncWebCrawler(verbose=False) as crawler:
-        result = await crawler.arun(
-            url=url,
-            wait_until="networkidle",
-            delay_before_return_html=2
-        )
+    try:
+        # Use headless Chromium to reduce blocking
+        async with AsyncWebCrawler(verbose=True) as crawler:
+            result = await crawler.arun(
+                url=url,
+                wait_until="networkidle",
+                delay_before_return_html=2,
+                browser="chromium",  # forces a real browser
+                headless=True
+            )
+    except Exception as e:
+        print(f"CRAWL ERROR (match endings): {e}")
+        raise
 
     html = getattr(result, "html", "") or result.markdown
     soup = BeautifulSoup(html, "html.parser")
 
     tags = soup.select("a.d-block.brighten-on-hover.text-white")
-
     endings = []
     for tag in tags:
         href = tag.get("href", "")
@@ -37,7 +42,6 @@ async def get_gac_match_endings(player_id):
         endings.append(part)
 
     return endings[:MAX_MATCHES]
-
 
 # -------------------------------------------------------
 # PARSE OFFENSE WINS & LOSSES
@@ -80,7 +84,6 @@ def extract_offense_battles(html):
 
     return wins_raw, losses_raw
 
-
 # -------------------------------------------------------
 # STREAM ANALYSIS WITH DETAILED PROGRESS
 # -------------------------------------------------------
@@ -95,7 +98,6 @@ def analyze():
         )
 
     def generate():
-
         yield f"data: {json.dumps({'progress': 5})}\n\n"
 
         try:
@@ -119,36 +121,34 @@ def analyze():
             url = f"https://swgoh.gg/p/{player_id}/gac-history/{ending}/"
 
             async def fetch_match():
-                async with AsyncWebCrawler(verbose=False) as crawler:
-                    result = await crawler.arun(
-                        url=url,
-                        wait_until="networkidle",
-                        delay_before_return_html=2
-                    )
-                return getattr(result, "html", "") or result.markdown
+                try:
+                    async with AsyncWebCrawler(verbose=False) as crawler:
+                        result = await crawler.arun(
+                            url=url,
+                            wait_until="networkidle",
+                            delay_before_return_html=2,
+                            browser="chromium",
+                            headless=True
+                        )
+                    return getattr(result, "html", "") or result.markdown
+                except Exception as e:
+                    print(f"CRAWL ERROR (match {ending}): {e}")
+                    return ""
 
-            try:
-                html = asyncio.run(fetch_match())
-            except Exception:
-                html = ""
-
+            html = asyncio.run(fetch_match())
             wins, losses = extract_offense_battles(html)
 
             for w in wins:
                 win_totals[w] += 1
-
             for l in losses:
                 loss_totals[l] += 1
 
-            # Progress distributed between 15% and 95%
             progress = 15 + int(((i + 1) / total) * 80)
             yield f"data: {json.dumps({'progress': progress})}\n\n"
 
-        # Sort and cut to top 10
         sorted_wins = dict(
             sorted(win_totals.items(), key=lambda x: x[1], reverse=True)[:TOP_LIMIT]
         )
-
         sorted_losses = dict(
             sorted(loss_totals.items(), key=lambda x: x[1], reverse=True)[:TOP_LIMIT]
         )
@@ -165,18 +165,13 @@ def analyze():
     return Response(
         generate(),
         mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no"
-        }
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     )
-
 
 @app.route("/")
 def home():
     return render_template("index.html")
 
-
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Render assigns PORT
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True, threaded=True)
