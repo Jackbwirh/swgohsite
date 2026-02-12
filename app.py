@@ -4,6 +4,7 @@ import json
 from crawl4ai import AsyncWebCrawler
 from bs4 import BeautifulSoup
 from collections import defaultdict
+import os
 
 app = Flask(__name__)
 
@@ -85,13 +86,23 @@ def extract_offense_battles(html):
 # -------------------------------------------------------
 @app.route("/analyze")
 def analyze():
-    player_id = request.args.get("player_id")
+    player_id = request.args.get("player_id", "").strip()
+
+    if not player_id:
+        return Response(
+            f"data: {json.dumps({'done': True, 'error': 'Player ID cannot be empty'})}\n\n",
+            mimetype="text/event-stream"
+        )
 
     def generate():
 
         yield f"data: {json.dumps({'progress': 5})}\n\n"
 
-        endings = asyncio.run(get_gac_match_endings(player_id))
+        try:
+            endings = asyncio.run(get_gac_match_endings(player_id))
+        except Exception:
+            yield f"data: {json.dumps({'done': True, 'error': 'Failed to fetch match endings'})}\n\n"
+            return
 
         if not endings:
             yield f"data: {json.dumps({'done': True, 'error': 'No matches found'})}\n\n"
@@ -116,7 +127,10 @@ def analyze():
                     )
                 return getattr(result, "html", "") or result.markdown
 
-            html = asyncio.run(fetch_match())
+            try:
+                html = asyncio.run(fetch_match())
+            except Exception:
+                html = ""
 
             wins, losses = extract_offense_battles(html)
 
@@ -164,4 +178,5 @@ def home():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000, debug=True, threaded=True)
+    port = int(os.environ.get("PORT", 5000))  # Render assigns PORT
+    app.run(host="0.0.0.0", port=port, debug=True, threaded=True)
